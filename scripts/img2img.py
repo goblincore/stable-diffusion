@@ -254,9 +254,10 @@ def main():
     with torch.no_grad():
         with precision_scope(device.type):
             with model.ema_scope():
-                tic = time.time()
+                tic = time.perf_counter()
                 all_samples = list()
                 for n in trange(opt.n_iter, desc="Sampling"):
+                    iter_tic = time.perf_counter()
                     for prompts in tqdm(data, desc="data"):
                         uc = None
                         if opt.scale != 1.0:
@@ -281,7 +282,8 @@ def main():
                                     os.path.join(sample_path, f"{base_count:05}.png"))
                                 base_count += 1
                         all_samples.append(x_samples)
-
+                    iter_toc = time.perf_counter()
+                    print(f'batch {n} generated {batch_size} images in {iter_toc-iter_tic} seconds')
                 if not opt.skip_grid:
                     # additionally, save as grid
                     grid = torch.stack(all_samples, 0)
@@ -293,7 +295,8 @@ def main():
                     Image.fromarray(grid.astype(np.uint8)).save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
                     grid_count += 1
 
-                toc = time.time()
+                toc = time.perf_counter()
+                print(f'in total, generated {opt.n_iter} batches of {batch_size} images in {toc-tic} seconds')
 
     print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
           f" \nEnjoy.")
