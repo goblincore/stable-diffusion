@@ -1,0 +1,7 @@
+.DS_Store
+/ldm/
+/latent_diffusion.egg-info
+/models/ldm/stable-diffusion-v1/
+/outputs/
+/src/clip/
+/src/taming-transformers/
