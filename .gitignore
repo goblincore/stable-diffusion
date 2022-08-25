@@ -1,5 +1,5 @@
 .DS_Store
-/ldm/
+__pycache__/
 /latent_diffusion.egg-info
 /models/ldm/stable-diffusion-v1/
 /outputs/
