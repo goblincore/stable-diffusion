@@ -1,0 +1,42 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: txt2img",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/txt2img.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--prompt",
+        "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
+        "--plms",
+        "--n_iter", "1",
+        "--n_samples", "1",
+      ]
+    },
+    {
+      "name": "Python: img2img",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/img2img.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--init-img",
+        "/Users/birch/dall-e-mega/fumo plush of lina from dota 1.jpg",
+        "--prompt",
+        "adorable plush doll maiden of magic fire, made of felt material, against a plain background.",
+        // best was" plush doll maiden of magic fire", strength 0.3, scale 10
+        "--strength", "0.3",
+        "--scale", "10",
+        // "--plms",
+        // "--n_iter", "1"
+      ]
+    }
+  ]
+}
