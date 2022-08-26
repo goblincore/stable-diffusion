@@ -47,6 +47,23 @@
       "justMyCode": true,
       "args": [
       ]
-    }
+    },
+    {
+      "name": "Python: txt2img fork",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/txt2img_fork.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--prompt",
+        // "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
+        "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
+        "--plms",
+        "--n_iter", "1",
+        "--n_samples", "1",
+        // "--ddim_steps", "100",
+      ]
+    },
   ]
 }
