@@ -5,3 +5,5 @@ __pycache__/
 /outputs/
 /src/clip/
 /src/taming-transformers/
+/src/gfpgan/
+/src/k-diffusion/
