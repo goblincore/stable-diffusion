@@ -37,6 +37,16 @@
         // "--plms",
         // "--n_iter", "1"
       ]
+    },
+    {
+      "name": "Python: txt2img_gradio",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/txt2img_gradio.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+      ]
     }
   ]
 }
