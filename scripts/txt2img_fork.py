@@ -2,6 +2,7 @@ import argparse, os, sys, glob
 import cv2
 import torch
 import numpy as np
+# from math import floor, log2
 from omegaconf import OmegaConf
 from PIL import Image
 from tqdm import tqdm, trange
@@ -18,7 +19,7 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 
-from k_diffusion.sampling import sample_lms, sample_dpm_2, sample_dpm_2_ancestral, sample_euler, sample_euler_ancestral, sample_heun
+from k_diffusion.sampling import sample_lms, sample_dpm_2, sample_dpm_2_ancestral, sample_euler, sample_euler_ancestral, sample_heun, get_sigmas_karras
 from k_diffusion.external import CompVisDenoiser
 
 def get_device():
@@ -358,7 +359,26 @@ def main():
                                     sampling_fn = sample_euler_ancestral
                                 case _:
                                     sampling_fn = sample_lms
-                            sigmas = model_k_wrapped.get_sigmas(opt.steps)
+                            # sigmas = model_k_wrapped.get_sigmas(opt.steps)
+                            # Karras sampling schedule gives faster inference and can be computed without knowledge of the model
+                            sigmas = get_sigmas_karras(
+                                n=opt.steps,
+                                # min noise level
+                                sigma_min=0.002,
+                                # max noise level
+                                # @lucidrains uses 80 for base Unet of imagen-pytorch (64x64), which is also the recommendation in the paper
+                                # https://github.com/lucidrains/imagen-pytorch/blob/59b5e55e45e2164d79e50d1f91375949576f2bbf/imagen_pytorch/elucidated_imagen.py#L95
+                                # @crowsonkb recommends to double sigma_max and the sampling density every time your edge length doubles.
+                                # https://github.com/lucidrains/imagen-pytorch/issues/81#issuecomment-1167726437
+                                # for a 512x512 image, our sigma_max would be 640
+                                # sigma_max=floor(80*2**log2(max(opt.W, opt.H)/64)),
+                                # but I don't know how to set sampling density, and 640 looked pretty haunting when I tried it.
+                                # 80 looks like vaporwave, whereas 40 actually looks correct
+                                sigma_max=80,
+                                # as per Karras paper
+                                rho=7.,
+                                device=get_device()
+                                )
                             x = torch.randn([opt.n_samples, *shape], device=get_device()) * sigmas[0] # for GPU draw
                             extra_args = {
                                 'cond': c,
