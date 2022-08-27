@@ -11,12 +11,15 @@ from einops import rearrange
 from torchvision.utils import make_grid
 import time
 from pytorch_lightning import seed_everything
-from torch import autocast
+from torch import autocast, nn
 from contextlib import contextmanager, nullcontext
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
+
+from k_diffusion.sampling import sample_lms, sample_dpm_2, sample_dpm_2_ancestral, sample_euler, sample_euler_ancestral, sample_heun
+from k_diffusion.external import CompVisDenoiser
 
 def get_device():
     if(torch.cuda.is_available()):
@@ -26,6 +29,22 @@ def get_device():
     else:
         return 'cpu'
 
+K_DIFF_SAMPLERS = {'k_lms', 'dpm2', 'dpm2_ancestral', 'heun',
+    'euler', 'euler_ancestral'}
+NOT_K_DIFF_SAMPLERS = { 'ddim', 'plms' }
+VALID_SAMPLERS = { *K_DIFF_SAMPLERS, *NOT_K_DIFF_SAMPLERS }
+
+class KCFGDenoiser(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.inner_model = model
+
+    def forward(self, x, sigma, uncond, cond, cond_scale):
+        x_in = torch.cat([x] * 2)
+        sigma_in = torch.cat([sigma] * 2)
+        cond_in = torch.cat([uncond, cond])
+        uncond, cond = self.inner_model(x_in, sigma_in, cond=cond_in).chunk(2)
+        return uncond + (cond - uncond) * cond_scale
 
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from transformers import AutoFeatureExtractor
@@ -134,15 +153,17 @@ def main():
         help="do not save individual samples. For speed measurements.",
     )
     parser.add_argument(
-        "--ddim_steps",
+        "--steps",
         type=int,
         default=50,
-        help="number of ddim sampling steps",
+        help="number of sampling steps",
     )
     parser.add_argument(
-        "--plms",
-        action='store_true',
-        help="use plms sampling",
+        "--sampler",
+        type=str,
+        help="which sampler",
+        choices=VALID_SAMPLERS,
+        default="k_lms"
     )
     parser.add_argument(
         "--laion400m",
@@ -254,10 +275,15 @@ def main():
     device = torch.device(get_device())
     model = model.to(device)
 
-    if opt.plms:
-        sampler = PLMSSampler(model)
-    else:
-        sampler = DDIMSampler(model)
+    if opt.sampler in K_DIFF_SAMPLERS:
+        model_k_wrapped = CompVisDenoiser(model)
+        model_k_config = KCFGDenoiser(model_k_wrapped)
+    elif opt.sampler in NOT_K_DIFF_SAMPLERS:
+        if opt.sampler == 'plms':
+            sampler = PLMSSampler(model)
+        else:
+            sampler = DDIMSampler(model)
+    
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
@@ -307,21 +333,49 @@ def main():
                             prompts = list(prompts)
                         c = model.get_learned_conditioning(prompts)
                         shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-                        samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
-                                                         conditioning=c,
-                                                         batch_size=opt.n_samples,
-                                                         shape=shape,
-                                                         verbose=False,
-                                                         unconditional_guidance_scale=opt.scale,
-                                                         unconditional_conditioning=uc,
-                                                         eta=opt.ddim_eta,
-                                                         x_T=start_code)
 
-                        x_samples_ddim = model.decode_first_stage(samples_ddim)
-                        x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                        x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
+                        if opt.sampler in NOT_K_DIFF_SAMPLERS:
+                            samples, _ = sampler.sample(S=opt.steps,
+                                                            conditioning=c,
+                                                            batch_size=opt.n_samples,
+                                                            shape=shape,
+                                                            verbose=False,
+                                                            unconditional_guidance_scale=opt.scale,
+                                                            unconditional_conditioning=uc,
+                                                            eta=opt.ddim_eta,
+                                                            x_T=start_code)
+                        elif opt.sampler in K_DIFF_SAMPLERS:
+                            match opt.sampler:
+                                case 'dpm2':
+                                    sampling_fn = sample_dpm_2
+                                case 'dpm2_ancestral':
+                                    sampling_fn = sample_dpm_2_ancestral
+                                case 'heun':
+                                    sampling_fn = sample_heun
+                                case 'euler':
+                                    sampling_fn = sample_euler
+                                case 'euler_ancestral':
+                                    sampling_fn = sample_euler_ancestral
+                                case _:
+                                    sampling_fn = sample_lms
+                            sigmas = model_k_wrapped.get_sigmas(opt.steps)
+                            x = torch.randn([opt.n_samples, *shape], device=get_device()) * sigmas[0] # for GPU draw
+                            extra_args = {
+                                'cond': c,
+                                'uncond': uc,
+                                'cond_scale': opt.scale,
+                            }
+                            samples = sampling_fn(
+                                model_k_config,
+                                x,
+                                sigmas,
+                                extra_args=extra_args)
 
-                        x_checked_image, has_nsfw_concept = check_safety_poorly(x_samples_ddim)
+                        x_samples = model.decode_first_stage(samples)
+                        x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+                        x_samples = x_samples.cpu().permute(0, 2, 3, 1).numpy()
+
+                        x_checked_image, has_nsfw_concept = check_safety_poorly(x_samples)
 
                         x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
 
