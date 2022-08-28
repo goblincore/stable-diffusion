@@ -363,7 +363,7 @@ def main():
                                     sampling_fn = sample_euler
                                 case 'euler_ancestral':
                                     sampling_fn = sample_euler_ancestral
-                                case _:
+                                case 'k_lms' | _:
                                     sampling_fn = sample_lms
                             # Karras sampling schedule achieves higher FID in fewer steps
                             # https://arxiv.org/abs/2206.00364
