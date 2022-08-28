@@ -13,6 +13,7 @@ import time
 from pytorch_lightning import seed_everything
 from torch import autocast, nn
 from contextlib import contextmanager, nullcontext
+from warnings import warn
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -29,8 +30,9 @@ def get_device():
     else:
         return 'cpu'
 
-K_DIFF_SAMPLERS = {'k_lms', 'dpm2', 'dpm2_ancestral', 'heun',
-    'euler', 'euler_ancestral'}
+# samplers from the Karras et al paper
+KARRAS_SAMPLERS = { 'heun', 'euler', 'dpm2' }
+K_DIFF_SAMPLERS = { *KARRAS_SAMPLERS, 'k_lms', 'dpm2_ancestral', 'euler_ancestral' }
 NOT_K_DIFF_SAMPLERS = { 'ddim', 'plms' }
 VALID_SAMPLERS = { *K_DIFF_SAMPLERS, *NOT_K_DIFF_SAMPLERS }
 
@@ -164,6 +166,11 @@ def main():
         help="which sampler",
         choices=VALID_SAMPLERS,
         default="k_lms"
+    )
+    parser.add_argument(
+        "--karras",
+        action='store_true',
+        help=f"use Karras et al noise scheduler (higher FID / fewer steps). only {KARRAS_SAMPLERS} samplers are supported. (i.e. can quantize sigma_hat to discrete noise levels). you can *try* the Karras et al noise scheduler with other samplers if you want, but it will probably be sub-optimal (as you will lack the mitigations described in section C.3.4 of the arXiv:2206.00364 paper).",
     )
     parser.add_argument(
         "--laion400m",
@@ -358,18 +365,27 @@ def main():
                                     sampling_fn = sample_euler_ancestral
                                 case _:
                                     sampling_fn = sample_lms
-                            # sigmas = model_k_wrapped.get_sigmas(opt.steps)
                             # Karras sampling schedule achieves higher FID in fewer steps
-                            sigmas = get_sigmas_karras(
-                                n=opt.steps,
-                                sigma_min=model_k_wrapped.sigmas[0].item(),
-                                sigma_max=model_k_wrapped.sigmas[-1].item(),
-                                # as per Karras paper
-                                rho=7.,
-                                device=get_device()
+                            # https://arxiv.org/abs/2206.00364
+                            if opt.karras:
+                                if opt.sampler not in KARRAS_SAMPLERS:
+                                    warn(f'{opt.sampler} sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). you can try it if you like, but it may not be optimal (and therefore you may not get the benefits you were hoping for).\nprefer a sampler from {KARRAS_SAMPLERS}.')
+                                sigmas = get_sigmas_karras(
+                                    n=opt.steps,
+                                    sigma_min=model_k_wrapped.sigmas[0].item(),
+                                    sigma_max=model_k_wrapped.sigmas[-1].item(),
+                                    rho=7.,
+                                    device=get_device()
                                 )
-                            # quantize sigmas from Karras noise schedule to closest equivalent in model_k_wrapped.sigmas
-                            sigmas = model_k_wrapped.sigmas[np.clip(np.digitize(sigmas.cpu(), model_k_wrapped.sigmas.cpu(), right=False), 0, len(model_k_wrapped.sigmas)-1)]
+                                # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
+                                sigmas = model_k_wrapped.sigmas[np.clip(np.digitize(sigmas.cpu(), model_k_wrapped.sigmas.cpu()), 0, len(model_k_wrapped.sigmas)-1)]
+                                noise_schedule_sampler_args = {
+                                    'quanta': model_k_wrapped.sigmas
+                                }
+                            else:
+                                sigmas = model_k_wrapped.get_sigmas(opt.steps)
+                                noise_schedule_sampler_args = {}
+
                             x = torch.randn([opt.n_samples, *shape], device=get_device()) * sigmas[0] # for GPU draw
                             extra_args = {
                                 'cond': c,
@@ -380,7 +396,8 @@ def main():
                                 model_k_config,
                                 x,
                                 sigmas,
-                                extra_args=extra_args)
+                                extra_args=extra_args,
+                                **noise_schedule_sampler_args)
 
                         x_samples = model.decode_first_stage(samples)
                         x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)

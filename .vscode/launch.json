@@ -62,7 +62,8 @@
         "--n_iter", "1",
         "--n_samples", "1",
         "--steps", "50",
-        "--sampler", "euler"
+        "--sampler", "heun",
+        "--karras"
       ]
     },
   ]
