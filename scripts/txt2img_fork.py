@@ -365,11 +365,11 @@ def main():
                                     sampling_fn = sample_euler_ancestral
                                 case 'k_lms' | _:
                                     sampling_fn = sample_lms
+
+                            noise_schedule_sampler_args = {}
                             # Karras sampling schedule achieves higher FID in fewer steps
                             # https://arxiv.org/abs/2206.00364
                             if opt.karras:
-                                if opt.sampler not in KARRAS_SAMPLERS:
-                                    warn(f'{opt.sampler} sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). you can try it if you like, but it may not be optimal (and therefore you may not get the benefits you were hoping for).\nprefer a sampler from {KARRAS_SAMPLERS}.')
                                 sigmas = get_sigmas_karras(
                                     n=opt.steps,
                                     sigma_min=model_k_wrapped.sigmas[0].item(),
@@ -377,14 +377,21 @@ def main():
                                     rho=7.,
                                     device=get_device()
                                 )
-                                # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
-                                sigmas = model_k_wrapped.sigmas[np.clip(np.digitize(sigmas.cpu(), model_k_wrapped.sigmas.cpu()), 0, len(model_k_wrapped.sigmas)-1)]
-                                noise_schedule_sampler_args = {
-                                    'quanta': model_k_wrapped.sigmas
-                                }
+                                if opt.sampler in KARRAS_SAMPLERS:
+                                    noise_schedule_sampler_args['quanta'] = model_k_wrapped.sigmas
+                                else:
+                                    print(f'[WARN] you have requested a Karras et al noise schedule, but "{opt.sampler}" sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). we will discretize the sigmas before we give them to the sampler. maybe that suffices. if wrong, then it will be suboptimal (and therefore you may not get the benefits you were hoping for). prefer a sampler from {KARRAS_SAMPLERS}.')
+                                    # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
+                                    if get_device() == 'mps':
+                                        # aten::bucketize.Tensor is not currently implemented for MPS
+                                        # I don't want you to have to set PYTORCH_ENABLE_MPS_FALLBACK=1 for the whole program just for this
+                                        # this is a tiny array, so it's fine to bucketize it on-CPU.
+                                        sigma_indices = torch.bucketize(sigmas.cpu(), model_k_wrapped.sigmas.cpu()).to(get_device())
+                                    else:
+                                        sigma_indices = torch.bucketize(sigmas, model_k_wrapped.sigmas)
+                                    sigmas = model_k_wrapped.sigmas[torch.clamp(sigma_indices, min=0, max=len(model_k_wrapped.sigmas)-1)]
                             else:
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
-                                noise_schedule_sampler_args = {}
 
                             x = torch.randn([opt.n_samples, *shape], device=get_device()) * sigmas[0] # for GPU draw
                             extra_args = {
