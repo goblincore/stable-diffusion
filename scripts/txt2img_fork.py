@@ -369,7 +369,7 @@ def main():
                                 device=get_device()
                                 )
                             # quantize sigmas from Karras noise schedule to closest equivalent in model_k_wrapped.sigmas
-                            sigmas = model_k_wrapped.sigmas[np.clip(np.digitize(np.flipud(sigmas.cpu()), model_k_wrapped.sigmas.cpu(), right=False), 0, len(model_k_wrapped.sigmas)-1)].flipud()
+                            sigmas = model_k_wrapped.sigmas[np.clip(np.digitize(sigmas.cpu(), model_k_wrapped.sigmas.cpu(), right=False), 0, len(model_k_wrapped.sigmas)-1)]
                             x = torch.randn([opt.n_samples, *shape], device=get_device()) * sigmas[0] # for GPU draw
                             extra_args = {
                                 'cond': c,
