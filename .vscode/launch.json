@@ -13,10 +13,12 @@
       "justMyCode": true,
       "args": [
         "--prompt",
-        "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
+        // "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
+        "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
         "--plms",
         "--n_iter", "1",
         "--n_samples", "1",
+        "--ddim_steps", "100",
       ]
     },
     {
@@ -30,12 +32,16 @@
         "--init-img",
         "/Users/birch/dall-e-mega/fumo plush of lina from dota 1.jpg",
         "--prompt",
-        "adorable plush doll maiden of magic fire, made of felt material, against a plain background.",
+        // "adorable plush doll maiden of magic fire, made of felt material, against a plain background.",
+        "plush doll maiden of magic fire",
         // best was" plush doll maiden of magic fire", strength 0.3, scale 10
         "--strength", "0.3",
         "--scale", "10",
         // "--plms",
         // "--n_iter", "1"
+        // "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
+        // scale 12
+        // steps 100
       ]
     },
     {
@@ -58,13 +64,34 @@
       "args": [
         "--prompt",
         // "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
-        "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
+        // "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
+        "masterpiece character portrait of a blonde girl, full resolution, 4k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination, vaporwave",
+        // "masterpiece character portrait of a beautiful shrine maiden with long black hair, full resolution, 4k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination, vaporwave",
+        // "masterpiece character portrait of a shrine maiden with long black hair, full resolution, 4k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination, vaporwave",
+        // "masterpiece character portrait of a shrine maiden, full resolution, 4k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination, vaporwave",
         "--n_iter", "1",
         "--n_samples", "1",
-        "--steps", "50",
+        "--steps", "8",
         "--sampler", "heun",
-        "--karras"
+        "--karras",
+        "--seed",
+        "1396704121",
+        "--scale",
+        "20",
+        "--dynamic_threshold",
+        "--dynamic_thresholding_percentile",
+        "0.9"
+        // "--fixed_code",
       ]
     },
+    {
+      "name": "Python: threshold",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/threshold.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": []
+    }
   ]
 }
