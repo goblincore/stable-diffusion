@@ -175,6 +175,15 @@ def main():
         help=f"use Karras et al noise scheduler (higher FID / fewer steps). only {KARRAS_SAMPLERS} samplers are supported. (i.e. can quantize sigma_hat to discrete noise levels). you can *try* the Karras et al noise scheduler with other samplers if you want, but it will probably be sub-optimal (as you will lack the mitigations described in section C.3.4 of the arXiv:2206.00364 paper).",
     )
     parser.add_argument(
+        "--dynamic_threshold",
+        action='store_true',
+    )
+    parser.add_argument(
+        "--dynamic_thresholding_percentile",
+        type=float,
+        default=0.9,
+    )
+    parser.add_argument(
         "--laion400m",
         action='store_true',
         help="uses the LAION400M model",
@@ -320,15 +329,9 @@ def main():
     base_count = len(os.listdir(sample_path))
     grid_count = len(os.listdir(outpath)) - 1
 
-
     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
 
     start_code = None
-    if opt.fixed_code or opt.sampler in K_DIFF_SAMPLERS:
-        rand_size = [opt.n_samples, *shape]
-        # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
-        # MPS random is not currently deterministic w.r.t seed, so compute randn() on-CPU
-        start_code = torch.randn(rand_size, device='cpu').to(device) if device.type == 'mps' else torch.randn(rand_size, device=device)
 
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
@@ -347,6 +350,12 @@ def main():
                         if isinstance(prompts, tuple):
                             prompts = list(prompts)
                         c = model.get_learned_conditioning(prompts)
+
+                        if start_code is None or not opt.fixed_code:
+                            rand_size = [opt.n_samples, *shape]
+                            # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
+                            # MPS random is not currently deterministic w.r.t seed, so compute randn() on-CPU
+                            start_code = torch.randn(rand_size, device='cpu').to(device) if device.type == 'mps' else torch.randn(rand_size, device=device)
 
                         if opt.sampler in NOT_K_DIFF_SAMPLERS:
                             samples, _ = sampler.sample(S=opt.steps,
