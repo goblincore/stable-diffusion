@@ -78,7 +78,7 @@
         "1396704121",
         "--scale",
         "20",
-        "--dynamic_threshold",
+        "--dynamic_thresholding",
         "--dynamic_thresholding_percentile",
         "0.9"
         // "--fixed_code",

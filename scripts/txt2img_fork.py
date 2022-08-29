@@ -2,6 +2,7 @@ import argparse, os, sys, glob
 import cv2
 import torch
 import numpy as np
+from torch import Tensor
 from omegaconf import OmegaConf
 from PIL import Image
 from tqdm import tqdm, trange
@@ -126,6 +127,14 @@ def check_safety(x_image):
 def check_safety_poorly(images, **kwargs):
     return images, False
 
+# https://github.com/lucidrains/imagen-pytorch/blob/ceb23d62ecf611082c82b94f2625d78084738ced/imagen_pytorch/imagen_pytorch.py#L127
+# from lucidrains' imagen_pytorch
+# MIT-licensed
+def right_pad_dims_to(x: Tensor, t: Tensor) -> Tensor:
+  padding_dims = x.ndim - t.ndim
+  if padding_dims <= 0:
+    return t
+  return t.view(*t.shape, *((1,) * padding_dims))
 
 def main():
     parser = argparse.ArgumentParser()
@@ -175,7 +184,7 @@ def main():
         help=f"use Karras et al noise scheduler (higher FID / fewer steps). only {KARRAS_SAMPLERS} samplers are supported. (i.e. can quantize sigma_hat to discrete noise levels). you can *try* the Karras et al noise scheduler with other samplers if you want, but it will probably be sub-optimal (as you will lack the mitigations described in section C.3.4 of the arXiv:2206.00364 paper).",
     )
     parser.add_argument(
-        "--dynamic_threshold",
+        "--dynamic_thresholding",
         action='store_true',
     )
     parser.add_argument(
@@ -421,6 +430,20 @@ def main():
                                 **noise_schedule_sampler_args)
 
                         x_samples = model.decode_first_stage(samples)
+
+                        if opt.dynamic_thresholding:
+                            # https://github.com/lucidrains/imagen-pytorch/blob/ceb23d62ecf611082c82b94f2625d78084738ced/imagen_pytorch/imagen_pytorch.py#L1982
+                            # adapted from lucidrains' imagen_pytorch (MIT-licensed)
+                            # implementation of pseudocode from Imagen paper https://arxiv.org/abs/2205.11487 Section E, A.32
+                            s = torch.quantile(
+                                rearrange(x_samples, 'a b ... -> a b (...)').abs(),
+                                opt.dynamic_thresholding_percentile,
+                                dim = 2
+                            )
+                            s.clamp_(min = 1.)
+                            s = right_pad_dims_to(x_samples, s)
+                            x_samples = x_samples.clamp(-s, s) / s
+                        
                         x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
                         x_samples = x_samples.cpu().permute(0, 2, 3, 1).numpy()
 

@@ -12,7 +12,7 @@ def right_pad_dims_to(x, t):
   return t.view(*t.shape, *((1,) * padding_dims))
 
 device = torch.device('cpu')
-x_samples = torch.load('x.pt', map_location=device)
+x_samples = torch.load('y.0.pt', map_location=device)
 
 s = torch.quantile(
   rearrange(x_samples, 'a b ... -> a b (...)').abs(),
@@ -31,4 +31,4 @@ x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
 for ix, x_sample in enumerate(x_checked_image_torch):
   x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
   img = Image.fromarray(x_sample.astype(np.uint8))
-  img.save(f'xbatch.{ix}.png')
+  img.save(f'ybatch.0.{ix}.png')
