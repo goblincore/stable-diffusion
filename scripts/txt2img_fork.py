@@ -390,14 +390,7 @@ def main():
                                 else:
                                     print(f'[WARN] you have requested a Karras et al noise schedule, but "{opt.sampler}" sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). we will discretize the sigmas before we give them to the sampler. maybe that suffices. if wrong, then it will be suboptimal (and therefore you may not get the benefits you were hoping for). prefer a sampler from {KARRAS_SAMPLERS}.')
                                     # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
-                                    if device.type == 'mps':
-                                        # aten::bucketize.Tensor is not currently implemented for MPS
-                                        # I don't want you to have to set PYTORCH_ENABLE_MPS_FALLBACK=1 for the whole program just for this
-                                        # this is a tiny array, so it's fine to bucketize it on-CPU.
-                                        sigma_indices = torch.bucketize(sigmas.cpu(), model_k_wrapped.sigmas.cpu()).to(device)
-                                    else:
-                                        sigma_indices = torch.bucketize(sigmas, model_k_wrapped.sigmas)
-                                    sigmas = model_k_wrapped.sigmas[torch.clamp(sigma_indices, min=0, max=len(model_k_wrapped.sigmas)-1)]
+                                    sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
                             else:
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
 
