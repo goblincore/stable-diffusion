@@ -92,6 +92,15 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "args": []
+    },
+    {
+      "name": "Python: threshold batch",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/threshold_batch.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": []
     }
   ]
 }

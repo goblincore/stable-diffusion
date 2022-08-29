@@ -13,17 +13,6 @@ def right_pad_dims_to(x, t):
 
 device = torch.device('cpu')
 x_samples = torch.load('x.pt', map_location=device)
-# print('initial:')
-# print(x_samples)
-
-# s = torch.quantile(
-#     rearrange(x_samples, 'b ... -> b (...)').abs(),
-#     dynamic_thresholding_percentile,
-#     dim = 1,
-#     keepdim=True
-#   )
-# s.clamp_(min = 1.)
-# s = right_pad_dims_to(x_samples, s)
 for x_sample in x_samples:
   s = torch.quantile(
     rearrange(x_sample, 'b ... -> b (...)').abs(),
