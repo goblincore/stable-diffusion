@@ -13,6 +13,7 @@ import time
 from pytorch_lightning import seed_everything
 from torch import autocast, nn
 from contextlib import contextmanager, nullcontext
+from random import randint
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -128,6 +129,8 @@ def check_safety_poorly(images, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
+
+    proposed_seed = randint(np.iinfo(np.uint32).min, np.iinfo(np.uint32).max)
 
     parser.add_argument(
         "--prompt",
@@ -255,7 +258,7 @@ def main():
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=proposed_seed,
         help="the seed (for reproducible sampling)",
     )
     parser.add_argument(
@@ -421,8 +424,7 @@ def main():
                                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                                 img = Image.fromarray(x_sample.astype(np.uint8))
                                 # img = put_watermark(img, wm_encoder)
-                                seed_suffix = f'.s{opt.seed}' if start_code is not None else ''
-                                img.save(os.path.join(sample_path, f"{base_count:05}{seed_suffix}.png"))
+                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.png"))
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -439,8 +441,7 @@ def main():
                     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
                     img = Image.fromarray(grid.astype(np.uint8))
                     # img = put_watermark(img, wm_encoder)
-                    seed_suffix = f'.s{opt.seed}' if start_code is not None else ''
-                    img.save(os.path.join(outpath, f'grid-{grid_count:04}{seed_suffix}.png'))
+                    img.save(os.path.join(outpath, f'grid-{grid_count:04}.s{opt.seed}.png'))
                     grid_count += 1
 
                 toc = time.perf_counter()
