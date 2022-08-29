@@ -7,3 +7,5 @@ __pycache__/
 /src/taming-transformers/
 /src/gfpgan/
 /src/k-diffusion/
+/*.png
+/*.pt
