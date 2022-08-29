@@ -318,9 +318,12 @@ def main():
     base_count = len(os.listdir(sample_path))
     grid_count = len(os.listdir(outpath)) - 1
 
+
+    shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+
     start_code = None
-    if opt.fixed_code:
-        rand_size = [opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f]
+    if opt.fixed_code or opt.sampler in K_DIFF_SAMPLERS:
+        rand_size = [opt.n_samples, *shape]
         # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
         # MPS random is not currently deterministic w.r.t seed, so compute randn() on-CPU
         start_code = torch.randn(rand_size, device='cpu').to(device) if device.type == 'mps' else torch.randn(rand_size, device=device)
@@ -342,7 +345,6 @@ def main():
                         if isinstance(prompts, tuple):
                             prompts = list(prompts)
                         c = model.get_learned_conditioning(prompts)
-                        shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
 
                         if opt.sampler in NOT_K_DIFF_SAMPLERS:
                             samples, _ = sampler.sample(S=opt.steps,
@@ -394,7 +396,7 @@ def main():
                             else:
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
 
-                            x = torch.randn([opt.n_samples, *shape], device=device) * sigmas[0] # for GPU draw
+                            x = start_code * sigmas[0] # for GPU draw
                             extra_args = {
                                 'cond': c,
                                 'uncond': uc,
