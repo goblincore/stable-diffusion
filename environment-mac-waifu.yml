@@ -33,5 +33,5 @@ dependencies:
     - -e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
     - -e git+https://github.com/openai/CLIP.git@main#egg=clip
     - -e git+https://github.com/Birch-san/GFPGAN.git@newer-numpy#egg=GFPGAN
-    - -e git+https://github.com/hlky/k-diffusion-sd#egg=k_diffusion
+    - -e git+https://github.com/Birch-san/k-diffusion.git@mps#egg=k_diffusion
     - -e .
