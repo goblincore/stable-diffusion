@@ -13,7 +13,6 @@ import time
 from pytorch_lightning import seed_everything
 from torch import autocast, nn
 from contextlib import contextmanager, nullcontext
-from warnings import warn
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
