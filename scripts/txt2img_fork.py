@@ -320,7 +320,10 @@ def main():
 
     start_code = None
     if opt.fixed_code:
-        start_code = torch.randn([opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device)
+        rand_size = [opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f]
+        # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
+        # MPS random is not currently deterministic w.r.t seed, so compute randn() on-CPU
+        start_code = torch.randn(rand_size, device='cpu').to(device) if device.type == 'mps' else torch.randn(rand_size, device=device)
 
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
