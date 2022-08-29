@@ -422,7 +422,8 @@ def main():
                                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                                 img = Image.fromarray(x_sample.astype(np.uint8))
                                 # img = put_watermark(img, wm_encoder)
-                                img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                                seed_suffix = f'.s{opt.seed}' if start_code is not None else ''
+                                img.save(os.path.join(sample_path, f"{base_count:05}{seed_suffix}.png"))
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -439,8 +440,8 @@ def main():
                     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
                     img = Image.fromarray(grid.astype(np.uint8))
                     # img = put_watermark(img, wm_encoder)
-                    seed_suffix = f's{opt.seed}.' if start_code is not None else ''
-                    img.save(os.path.join(outpath, f'grid-{grid_count:04}.{opt.seed}{seed_suffix}.png'))
+                    seed_suffix = f'.s{opt.seed}' if start_code is not None else ''
+                    img.save(os.path.join(outpath, f'grid-{grid_count:04}{seed_suffix}.png'))
                     grid_count += 1
 
                 toc = time.perf_counter()
