@@ -374,11 +374,16 @@ def main():
                             # https://arxiv.org/abs/2206.00364
                             if opt.karras:
                                 sigmas = get_sigmas_karras(
-                                    n=opt.steps,
+                                    # ordinarily the step count is inclusive of the zero we're given, but we're excluding zero, 
+                                    n=opt.steps+1,
+                                    # 0.0292
                                     sigma_min=model_k_wrapped.sigmas[0].item(),
+                                    # 14.6146
                                     sigma_max=model_k_wrapped.sigmas[-1].item(),
                                     rho=7.,
-                                    device=device
+                                    device=device,
+                                    # zero would be smaller than sigma_min
+                                    concat_zero=False
                                 )
                                 if opt.sampler in KARRAS_SAMPLERS:
                                     noise_schedule_sampler_args['quanta'] = model_k_wrapped.sigmas
