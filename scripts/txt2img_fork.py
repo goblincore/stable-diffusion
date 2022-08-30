@@ -373,6 +373,7 @@ def main():
     karras_noise_active = False
     discretization_active = False
     yolo_discretization_active = False
+    no_zero_sigma_active = False
 
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
@@ -447,6 +448,7 @@ def main():
                                     concat_zero=not opt.no_zero_sigma
                                 )
                                 karras_noise_active = True
+                                no_zero_sigma_active = opt.no_zero_sigma
                             else:
                                 if opt.sampler in KARRAS_SAMPLERS:
                                     print(f"[WARN] you should really enable --karras_noise for best results; it's the noise schedule proposed in the same paper (arXiv:2206.00364) as the sampler you're using ({opt.sampler}). Falling back to default k-diffusion get_sigmas() noise schedule.")
@@ -530,7 +532,7 @@ def main():
                                 kna = '_kns' if karras_noise_active else ''
                                 da = '_dcrt' if discretization_active else ''
                                 yda = '_ydcrt' if yolo_discretization_active else ''
-                                nz = '_nz' if opt.no_zero_sigma else ''
+                                nz = '_nz' if no_zero_sigma_active else ''
                                 img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
                                 base_count += 1
 
@@ -551,7 +553,7 @@ def main():
                     kna = '_kns' if karras_noise_active else ''
                     da = '_dcrt' if discretization_active else ''
                     yda = '_ydcrt' if yolo_discretization_active else ''
-                    nz = '_nz' if opt.no_zero_sigma else ''
+                    nz = '_nz' if no_zero_sigma_active else ''
                     img.save(os.path.join(outpath, f"grid-{grid_count:04}.s{opt.seed}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
                     grid_count += 1
 
