@@ -190,7 +190,7 @@ def main():
     parser.add_argument(
         "--dynamic_thresholding_percentile",
         type=float,
-        default=0.9,
+        default=0.9995,
     )
     parser.add_argument(
         "--laion400m",
