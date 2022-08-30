@@ -75,6 +75,7 @@
         "--sampler", "heun",
         "--karras_noise",
         "--discretization",
+        "--no_zero_sigma",
         "--seed",
         "1396704121",
         "--scale",

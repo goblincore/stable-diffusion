@@ -179,6 +179,18 @@ def main():
         choices=VALID_SAMPLERS,
         default="k_lms"
     )
+    # my recommendations for each sampler are:
+    # implement samplers from Karras et al paper using Karras noise schedule, discretize timesteps, and remove the zero sigma so we don't go below sigma_min
+    # --heun --karras_noise --discretization --no_zero_sigma
+    # --euler --karras_noise --discretization --no_zero_sigma
+    # --dpm2 --karras_noise --discretization --no_zero_sigma
+    # I assume Karras noise schedule is generally applicable, so is suitable for use with any k-diffusion sampler. there's no guidance on how to apply discretization to these algorithms, so we don't.
+    # --k_lms --karras_noise
+    # --euler_ancestral --karras_noise
+    # --dpm2_ancestral --karras_noise
+    # I didn't implement any way to generate the DDIM/PLMS sigmas from a Karras noise schedule
+    # --ddim
+    # --plms
     parser.add_argument(
         "--karras_noise",
         action='store_true',
@@ -188,6 +200,11 @@ def main():
         "--discretization",
         action='store_true',
         help=f"implements the time-step discretization from arXiv:2206.00364 section C.3.4. Implemented in Karras samplers only, {KARRAS_SAMPLERS}. Rounds each sigma proposed by your noise schedule, to the closest sigma among the 1000 on which Stable Diffusion's DDIM sampler was trained.",
+    )
+    parser.add_argument(
+        "--no_zero_sigma",
+        action='store_true',
+        help=f"when --karras_noise is enabled: ensures that we ramp from sigma_max to sigma_min, instead of shooting past sigma_min to 0. the default behaviour from k-diffusion would be to include a 0 as your final sigma. which could make sense for continuous-time models, but is out-of-range of the fixed sigmas in Stable Diffusion's DDIM (smallest is 0.0292). it's especially questionable when we are using discretization, as it will mean sampling sigma_min twice.",
     )
     parser.add_argument(
         "--yolo_discretization",
@@ -427,7 +444,7 @@ def main():
                                     rho=7.,
                                     device=device,
                                     # zero would be smaller than sigma_min
-                                    concat_zero=False
+                                    concat_zero=not opt.no_zero_sigma
                                 )
                                 karras_noise_active = True
                             else:
@@ -452,6 +469,8 @@ def main():
                                     sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
                                     yolo_discretization_active = True
                             
+                            if karras_noise_active and (discretization_active or yolo_discretization_active) and not opt.no_zero_sigma:
+                                print(f"[WARN] you should really enable --no_zero_sigma since you're using time-step discretization. a 0 is appended to the end of your sigmas, which will be rounded up to sigma_min. consequently you will sample sigma_min twice.")
 
                             x = start_code * sigmas[0] # for GPU draw
                             extra_args = {
@@ -511,7 +530,8 @@ def main():
                                 kna = '_kns' if karras_noise_active else ''
                                 da = '_dcrt' if discretization_active else ''
                                 yda = '_ydcrt' if yolo_discretization_active else ''
-                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}.png"))
+                                nz = '_nz' if opt.no_zero_sigma else ''
+                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -531,7 +551,8 @@ def main():
                     kna = '_kns' if karras_noise_active else ''
                     da = '_dcrt' if discretization_active else ''
                     yda = '_ydcrt' if yolo_discretization_active else ''
-                    img.save(os.path.join(outpath, f"grid-{grid_count:04}.s{opt.seed}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}.png"))
+                    nz = '_nz' if opt.no_zero_sigma else ''
+                    img.save(os.path.join(outpath, f"grid-{grid_count:04}.s{opt.seed}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
                     grid_count += 1
 
                 toc = time.perf_counter()
