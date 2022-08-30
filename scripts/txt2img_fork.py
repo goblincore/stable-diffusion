@@ -33,7 +33,8 @@ def get_device():
 
 # samplers from the Karras et al paper
 KARRAS_SAMPLERS = { 'heun', 'euler', 'dpm2' }
-K_DIFF_SAMPLERS = { *KARRAS_SAMPLERS, 'k_lms', 'dpm2_ancestral', 'euler_ancestral' }
+NON_KARRAS_K_DIFF_SAMPLERS = { 'k_lms', 'dpm2_ancestral', 'euler_ancestral' }
+K_DIFF_SAMPLERS = { *KARRAS_SAMPLERS, *NON_KARRAS_K_DIFF_SAMPLERS }
 NOT_K_DIFF_SAMPLERS = { 'ddim', 'plms' }
 VALID_SAMPLERS = { *K_DIFF_SAMPLERS, *NOT_K_DIFF_SAMPLERS }
 
@@ -179,9 +180,19 @@ def main():
         default="k_lms"
     )
     parser.add_argument(
-        "--karras",
+        "--karras_noise",
         action='store_true',
-        help=f"use Karras et al noise scheduler (higher FID / fewer steps). only {KARRAS_SAMPLERS} samplers are supported. (i.e. can quantize sigma_hat to discrete noise levels). you can *try* the Karras et al noise scheduler with other samplers if you want, but it will probably be sub-optimal (as you will lack the mitigations described in section C.3.4 of the arXiv:2206.00364 paper).",
+        help=f"use noise schedule from arXiv:2206.00364. Implemented for k-diffusion samplers, {K_DIFF_SAMPLERS}. but you should probably use it with one of the samplers introduced in the same paper: {KARRAS_SAMPLERS}.",
+    )
+    parser.add_argument(
+        "--discretization",
+        action='store_true',
+        help=f"implements the time-step discretization from arXiv:2206.00364 section C.3.4. Implemented in Karras samplers only, {KARRAS_SAMPLERS}. Rounds each sigma proposed by your noise schedule, to the closest sigma among the 1000 on which Stable Diffusion's DDIM sampler was trained.",
+    )
+    parser.add_argument(
+        "--yolo_discretization",
+        action='store_true',
+        help=f"if you are using a non-Karras k-diffusion sampler, {NON_KARRAS_K_DIFF_SAMPLERS}, and you're feeling spicy: rounds your noise schedule to the DDIM's nearest sigma before we give it to the sampler. this might be a crazy thing to do, or it might actually help.",
     )
     parser.add_argument(
         "--dynamic_thresholding",
@@ -342,6 +353,10 @@ def main():
 
     start_code = None
 
+    karras_noise_active = False
+    discretization_active = False
+    yolo_discretization_active = False
+
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
         precision_scope = nullcontext # have to use f32 on mps
@@ -367,6 +382,12 @@ def main():
                             start_code = torch.randn(rand_size, device='cpu').to(device) if device.type == 'mps' else torch.randn(rand_size, device=device)
 
                         if opt.sampler in NOT_K_DIFF_SAMPLERS:
+                            if opt.karras_noise:
+                                print(f"[WARN] You have requested --karras_noise, but Karras et al noise schedule is not implemented for {opt.sampler} sampler. Implemented only for {K_DIFF_SAMPLERS}. Using default noise schedule from DDIM.")
+                            if opt.discretization:
+                                print(f"[WARN] You have requested --discretization, but time-step discretization is not implemented for {opt.sampler} sampler. Implemented only for {KARRAS_SAMPLERS}. Using the sigmas from DDIM without applying any rounding.")
+                            if opt.yolo_discretization:
+                                print(f"[WARN] You have requested --yolo_discretization, but questionable time-step discretization is not implemented for {opt.sampler} sampler. Implemented only for {NON_KARRAS_K_DIFF_SAMPLERS}. Using the sigmas from DDIM without applying any rounding.")
                             samples, _ = sampler.sample(S=opt.steps,
                                                             conditioning=c,
                                                             batch_size=opt.n_samples,
@@ -394,7 +415,9 @@ def main():
                             noise_schedule_sampler_args = {}
                             # Karras sampling schedule achieves higher FID in fewer steps
                             # https://arxiv.org/abs/2206.00364
-                            if opt.karras:
+                            if opt.karras_noise:
+                                if opt.sampler not in KARRAS_SAMPLERS:
+                                    print(f"[WARN] you have enabled --karras_noise, but you are using it with a sampler ({opt.sampler}) outside of the ones proposed in the same paper (arXiv:2206.00364), {KARRAS_SAMPLERS}. No idea what results you'll get.")
                                 sigmas = get_sigmas_karras(
                                     # ordinarily the step count is inclusive of the zero we're given, but we're excluding zero, 
                                     n=opt.steps+1,
@@ -407,14 +430,24 @@ def main():
                                     # zero would be smaller than sigma_min
                                     concat_zero=False
                                 )
-                                if opt.sampler in KARRAS_SAMPLERS:
-                                    noise_schedule_sampler_args['decorate_sigma_hat'] = make_quantizer(model_k_wrapped.sigmas)
-                                else:
-                                    print(f'[WARN] you have requested a Karras et al noise schedule, but "{opt.sampler}" sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). we will discretize the sigmas before we give them to the sampler. maybe that suffices. if wrong, then it will be suboptimal (and therefore you may not get the benefits you were hoping for). prefer a sampler from {KARRAS_SAMPLERS}.')
-                                    # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
-                                    sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
+                                karras_noise_active = True
                             else:
+                                if opt.sampler in KARRAS_SAMPLERS:
+                                    print(f"[WARN] you should really enable --karras_noise for best results; it's the noise schedule proposed in the same paper (arXiv:2206.00364) as the sampler you're using ({opt.sampler}). Falling back to default k-diffusion get_sigmas() noise schedule.")
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
+                            
+                            if opt.sampler in KARRAS_SAMPLERS:
+                                if opt.discretization:
+                                    noise_schedule_sampler_args['decorate_sigma_hat'] = make_quantizer(model_k_wrapped.sigmas)
+                                    discretization_active = True
+                                else:
+                                    print(f"[WARN] you should really enable --discretization to get the full benefits of your Karras sampler, {opt.sampler}. time step discretization implements section C.3.4 of arXiv:2206.00364, the paper in which your sampler was proposed.")
+                            elif opt.yolo_discretization:
+                                print(f"[WARN] you are using the experimental YOLO time-step discretization, which is experimental. if you are lucky, perhaps it will approximate section C.3.4 of arXiv:2206.00364 for your {opt.sampler} sampler.")
+                                # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
+                                sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
+                                yolo_discretization_active = True
+                            
 
                             x = start_code * sigmas[0] # for GPU draw
                             extra_args = {
@@ -471,7 +504,10 @@ def main():
                                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                                 img = Image.fromarray(x_sample.astype(np.uint8))
                                 # img = put_watermark(img, wm_encoder)
-                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}.png"))
+                                kna = '_kns' if karras_noise_active else ''
+                                da = '_dcrt' if discretization_active else ''
+                                yda = '_ydcrt' if yolo_discretization_active else ''
+                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}.png"))
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -488,7 +524,10 @@ def main():
                     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
                     img = Image.fromarray(grid.astype(np.uint8))
                     # img = put_watermark(img, wm_encoder)
-                    img.save(os.path.join(outpath, f'grid-{grid_count:04}.s{opt.seed}.png'))
+                    kna = '_kns' if karras_noise_active else ''
+                    da = '_dcrt' if discretization_active else ''
+                    yda = '_ydcrt' if yolo_discretization_active else ''
+                    img.save(os.path.join(outpath, f"grid-{grid_count:04}.s{opt.seed}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}.png"))
                     grid_count += 1
 
                 toc = time.perf_counter()
