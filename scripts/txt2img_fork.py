@@ -441,11 +441,16 @@ def main():
                                     discretization_active = True
                                 else:
                                     print(f"[WARN] you should really enable --discretization to get the full benefits of your Karras sampler, {opt.sampler}. time step discretization implements section C.3.4 of arXiv:2206.00364, the paper in which your sampler was proposed.")
-                            elif opt.yolo_discretization:
-                                print(f"[WARN] you are using the experimental YOLO time-step discretization, which is experimental. if you are lucky, perhaps it will approximate section C.3.4 of arXiv:2206.00364 for your {opt.sampler} sampler.")
-                                # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
-                                sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
-                                yolo_discretization_active = True
+                                if opt.yolo_discretization:
+                                    print(f"[WARN] You have requested --yolo_discretization, but we will ignore this because your {opt.sampler} sampler supports the superior --discretization.")
+                            else:
+                                if opt.discretization:
+                                    print(f"[WARN] You have requested --discretization, but time-step discretization is not implemented for {opt.sampler} sampler. Implemented only for {KARRAS_SAMPLERS}.")
+                                if opt.yolo_discretization:
+                                    print(f"[WARN] you are using the experimental YOLO time-step discretization, which is experimental. if you are lucky, perhaps it will approximate section C.3.4 of arXiv:2206.00364 for your {opt.sampler} sampler.")
+                                    # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
+                                    sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
+                                    yolo_discretization_active = True
                             
 
                             x = start_code * sigmas[0] # for GPU draw
