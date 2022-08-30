@@ -419,8 +419,7 @@ def main():
                                 if opt.sampler not in KARRAS_SAMPLERS:
                                     print(f"[WARN] you have enabled --karras_noise, but you are using it with a sampler ({opt.sampler}) outside of the ones proposed in the same paper (arXiv:2206.00364), {KARRAS_SAMPLERS}. No idea what results you'll get.")
                                 sigmas = get_sigmas_karras(
-                                    # ordinarily the step count is inclusive of the zero we're given, but we're excluding zero, 
-                                    n=opt.steps+1,
+                                    n=opt.steps,
                                     # 0.0292
                                     sigma_min=model_k_wrapped.sigmas[0].item(),
                                     # 14.6146
