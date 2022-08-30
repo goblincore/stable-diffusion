@@ -20,7 +20,7 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 
-from k_diffusion.sampling import sample_lms, sample_dpm_2, sample_dpm_2_ancestral, sample_euler, sample_euler_ancestral, sample_heun, get_sigmas_karras
+from k_diffusion.sampling import sample_lms, sample_dpm_2, sample_dpm_2_ancestral, sample_euler, sample_euler_ancestral, sample_heun, get_sigmas_karras, make_quantizer
 from k_diffusion.external import CompVisDenoiser
 
 def get_device():
@@ -408,7 +408,7 @@ def main():
                                     concat_zero=False
                                 )
                                 if opt.sampler in KARRAS_SAMPLERS:
-                                    noise_schedule_sampler_args['quanta'] = model_k_wrapped.sigmas
+                                    noise_schedule_sampler_args['decorate_sigma_hat'] = make_quantizer(model_k_wrapped.sigmas)
                                 else:
                                     print(f'[WARN] you have requested a Karras et al noise schedule, but "{opt.sampler}" sampler does not implement time step discretization (as described in section C.3.4 of arXiv:2206.00364). we will discretize the sigmas before we give them to the sampler. maybe that suffices. if wrong, then it will be suboptimal (and therefore you may not get the benefits you were hoping for). prefer a sampler from {KARRAS_SAMPLERS}.')
                                     # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
