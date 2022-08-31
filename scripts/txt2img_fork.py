@@ -339,6 +339,11 @@ def main():
         action='store_true',
         help="include sigmas in file name",
     )
+    parser.add_argument(
+        "--print_sigma_hats",
+        action='store_true',
+        help=f"print sigmas before/after sampler quantizes them (for {KARRAS_SAMPLERS} samplers)",
+    )
     opt = parser.parse_args()
 
     if opt.laion400m:
@@ -400,6 +405,9 @@ def main():
     yolo_discretization_active = False
     no_zero_sigma_active = False
 
+    def format_sigmas_pretty(sigmas: Tensor) -> str:
+        return f'[{", ".join("%.4f" % sigma for sigma in sigmas)}]'
+
     def _compute_common_file_name_portion(sample_ix: str = '', sigmas: str = '') -> str:
         seed = ''
         sampling = ''
@@ -415,7 +423,7 @@ def main():
         if opt.filename_seed:
             seed = f".s{opt.seed}"
         if opt.filename_prompt:
-            prompt = f"_{prompt}_"
+            prompt = f"_{opt.prompt}_"
         if opt.filename_sample_ix:
             sample_ix_ = sample_ix
         if opt.filename_sigmas:
@@ -511,7 +519,7 @@ def main():
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
                             
                             print('sigmas:')
-                            sigmas_pretty = f'[{", ".join("%.4f" % sigma for sigma in sigmas)}]'
+                            sigmas_pretty = format_sigmas_pretty(sigmas)
                             print(sigmas_pretty)
                             
                             if opt.sampler in KARRAS_SAMPLERS:
@@ -533,6 +541,18 @@ def main():
                             
                             if karras_noise_active and (discretization_active or yolo_discretization_active) and not opt.no_zero_sigma:
                                 print(f"[WARN] you should really enable --no_zero_sigma since you're using time-step discretization. a 0 is appended to the end of your sigmas, which will be rounded up to sigma_min. consequently you will sample sigma_min twice.")
+                            
+                            if opt.print_sigma_hats:
+                                orig_decorator = noise_schedule_sampler_args['decorate_sigma_hat'] if 'decorate_sigma_hat' in noise_schedule_sampler_args else lambda x: x
+                                sigmas_before = []
+                                sigmas_after = []
+                                def log_sigma(t: Tensor) -> Tensor:
+                                    sigmas_before.append(t.item())
+                                    decorated = orig_decorator(t)
+                                    sigmas_after.append(decorated.item())
+                                    return decorated
+
+                                noise_schedule_sampler_args['decorate_sigma_hat'] = log_sigma
 
                             x = start_code * sigmas[0] # for GPU draw
                             extra_args = {
@@ -596,6 +616,11 @@ def main():
                             all_samples.append(x_checked_image_torch)
                     iter_toc = time.perf_counter()
                     print(f'batch {n} generated {batch_size} images in {iter_toc-iter_tic} seconds')
+                    if opt.print_sigma_hats:
+                        print('sigmas before:')
+                        print(format_sigmas_pretty(sigmas_before))
+                        print('sigmas after:')
+                        print(format_sigmas_pretty(sigmas_after))
                 if not opt.skip_grid:
                     # additionally, save as grid
                     grid = torch.stack(all_samples, 0)
