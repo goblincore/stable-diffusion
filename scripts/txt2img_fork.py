@@ -314,6 +314,31 @@ def main():
         choices=["full", "autocast"],
         default="autocast"
     )
+    parser.add_argument(
+        "--filename_prompt",
+        action='store_true',
+        help="include prompt in filename",
+    )
+    parser.add_argument(
+        "--filename_sample_ix",
+        action='store_true',
+        help="include (sample-within-batch index, batch index) in file name",
+    )
+    parser.add_argument(
+        "--filename_seed",
+        action='store_true',
+        help="include seed in file name",
+    )
+    parser.add_argument(
+        "--filename_sampling",
+        action='store_true',
+        help="include sampling config in file name",
+    )
+    parser.add_argument(
+        "--filename_sigmas",
+        action='store_true',
+        help="include sigmas in file name",
+    )
     opt = parser.parse_args()
 
     if opt.laion400m:
@@ -374,6 +399,37 @@ def main():
     discretization_active = False
     yolo_discretization_active = False
     no_zero_sigma_active = False
+
+    def _compute_common_file_name_portion(sample_ix: str = '', sigmas: str = '') -> str:
+        seed = ''
+        sampling = ''
+        prompt = ''
+        sample_ix_ = ''
+        sigmas_ = ''
+        if opt.filename_sampling:
+            kna = '_kns' if karras_noise_active else ''
+            da = '_dcrt' if discretization_active else ''
+            yda = '_ydcrt' if yolo_discretization_active else ''
+            nz = '_nz' if no_zero_sigma_active else ''
+            sampling = f"{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}"
+        if opt.filename_seed:
+            seed = f".s{opt.seed}"
+        if opt.filename_prompt:
+            prompt = f"_{prompt}_"
+        if opt.filename_sample_ix:
+            sample_ix_ = sample_ix
+        if opt.filename_sigmas:
+            sigmas_ = f"_{sigmas}_"
+        return f"{seed}{sample_ix_}{prompt}{sigmas_}{sampling}"
+
+    def compute_batch_file_name(sigmas: str = '') -> str:
+        common_file_name_portion = _compute_common_file_name_portion(sigmas=sigmas)
+        return f"grid-{grid_count:04}{common_file_name_portion}.png"
+
+    def compute_sample_file_name(batch_ix: int, sample_ix_in_batch: int, sigmas: str = '') -> str:
+        sample_ix=f".n{batch_ix}.i{sample_ix_in_batch}"
+        common_file_name_portion = _compute_common_file_name_portion(sample_ix=sample_ix, sigmas=sigmas)
+        return f"{base_count:05}{common_file_name_portion}.png"
 
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
@@ -454,6 +510,10 @@ def main():
                                     print(f"[WARN] you should really enable --karras_noise for best results; it's the noise schedule proposed in the same paper (arXiv:2206.00364) as the sampler you're using ({opt.sampler}). Falling back to default k-diffusion get_sigmas() noise schedule.")
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
                             
+                            print('sigmas:')
+                            sigmas_pretty = f'[{", ".join("%.4f" % sigma for sigma in sigmas)}]'
+                            print(sigmas_pretty)
+                            
                             if opt.sampler in KARRAS_SAMPLERS:
                                 if opt.discretization:
                                     noise_schedule_sampler_args['decorate_sigma_hat'] = make_quantizer(model_k_wrapped.sigmas)
@@ -529,11 +589,7 @@ def main():
                                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                                 img = Image.fromarray(x_sample.astype(np.uint8))
                                 # img = put_watermark(img, wm_encoder)
-                                kna = '_kns' if karras_noise_active else ''
-                                da = '_dcrt' if discretization_active else ''
-                                yda = '_ydcrt' if yolo_discretization_active else ''
-                                nz = '_nz' if no_zero_sigma_active else ''
-                                img.save(os.path.join(sample_path, f"{base_count:05}.s{opt.seed}.n{n}.i{ix}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
+                                img.save(os.path.join(sample_path, compute_sample_file_name(batch_ix=n, sample_ix_in_batch=ix, sigmas=sigmas_pretty)))
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -550,11 +606,7 @@ def main():
                     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
                     img = Image.fromarray(grid.astype(np.uint8))
                     # img = put_watermark(img, wm_encoder)
-                    kna = '_kns' if karras_noise_active else ''
-                    da = '_dcrt' if discretization_active else ''
-                    yda = '_ydcrt' if yolo_discretization_active else ''
-                    nz = '_nz' if no_zero_sigma_active else ''
-                    img.save(os.path.join(outpath, f"grid-{grid_count:04}.s{opt.seed}_{prompt}_{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}.png"))
+                    img.save(os.path.join(outpath, compute_batch_file_name()))
                     grid_count += 1
 
                 toc = time.perf_counter()
