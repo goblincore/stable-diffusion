@@ -8,7 +8,7 @@ from PIL import Image
 from tqdm import tqdm, trange
 # from imwatermark import WatermarkEncoder
 from itertools import islice
-from einops import rearrange
+from einops import rearrange, repeat
 from torchvision.utils import make_grid
 import time
 from pytorch_lightning import seed_everything
@@ -136,6 +136,17 @@ def right_pad_dims_to(x: Tensor, t: Tensor) -> Tensor:
   if padding_dims <= 0:
     return t
   return t.view(*t.shape, *((1,) * padding_dims))
+
+def load_img(path):
+    image = Image.open(path).convert("RGB")
+    w, h = image.size
+    print(f"loaded input image of size ({w}, {h}) from {path}")
+    w, h = map(lambda x: x - x % 32, (w, h))  # resize to integer multiple of 32
+    image = image.resize((w, h), resample=Image.LANCZOS)
+    image = np.array(image).astype(np.float32) / 255.0
+    image = image[None].transpose(0, 3, 1, 2)
+    image = torch.from_numpy(image)
+    return 2.*image - 1.
 
 def main():
     parser = argparse.ArgumentParser()
@@ -344,6 +355,18 @@ def main():
         action='store_true',
         help=f"print sigmas before/after sampler quantizes them (for {KARRAS_SAMPLERS} samplers)",
     )
+    parser.add_argument(
+        "--init_img",
+        type=str,
+        nargs="?",
+        help="path to the input image"
+    )
+    parser.add_argument(
+        "--strength",
+        type=float,
+        default=0.75,
+        help="strength for noising/unnoising. 1.0 corresponds to full destruction of information in init image",
+    )
     opt = parser.parse_args()
 
     if opt.laion400m:
@@ -439,6 +462,14 @@ def main():
         common_file_name_portion = _compute_common_file_name_portion(sample_ix=sample_ix, sigmas=sigmas)
         return f"{base_count:05}{common_file_name_portion}.png"
 
+    init_latent = None
+    if opt.init_img:
+        assert os.path.isfile(opt.init_img)
+        init_image = load_img(opt.init_img).to(device)
+        init_image = repeat(init_image, '1 ... -> b ...', b=batch_size)
+        init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent space
+    t_enc = int((1.0-opt.strength) * opt.steps)
+
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     if device.type == 'mps':
         precision_scope = nullcontext # have to use f32 on mps
@@ -457,6 +488,7 @@ def main():
                             prompts = list(prompts)
                         c = model.get_learned_conditioning(prompts)
 
+                        # if init_latent is None and (start_code is None or not opt.fixed_code):
                         if start_code is None or not opt.fixed_code:
                             rand_size = [opt.n_samples, *shape]
                             # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
@@ -470,15 +502,27 @@ def main():
                                 print(f"[WARN] You have requested --discretization, but time-step discretization is not implemented for {opt.sampler} sampler. Implemented only for {KARRAS_SAMPLERS}. Using the sigmas from DDIM without applying any rounding.")
                             if opt.yolo_discretization:
                                 print(f"[WARN] You have requested --yolo_discretization, but questionable time-step discretization is not implemented for {opt.sampler} sampler. Implemented only for {NON_KARRAS_K_DIFF_SAMPLERS}. Using the sigmas from DDIM without applying any rounding.")
-                            samples, _ = sampler.sample(S=opt.steps,
-                                                            conditioning=c,
-                                                            batch_size=opt.n_samples,
-                                                            shape=shape,
-                                                            verbose=False,
-                                                            unconditional_guidance_scale=opt.scale,
-                                                            unconditional_conditioning=uc,
-                                                            eta=opt.ddim_eta,
-                                                            x_T=start_code)
+                            if init_latent is None:
+                                samples, _ = sampler.sample(
+                                    S=opt.steps,
+                                    conditioning=c,
+                                    batch_size=opt.n_samples,
+                                    shape=shape,
+                                    verbose=False,
+                                    unconditional_guidance_scale=opt.scale,
+                                    unconditional_conditioning=uc,
+                                    eta=opt.ddim_eta,
+                                    x_T=start_code
+                                )
+                            else:
+                                z_enc = sampler.stochastic_encode(init_latent, torch.tensor([t_enc]*batch_size).to(device))
+                                samples = sampler.decode(
+                                    z_enc,
+                                    c,
+                                    t_enc,
+                                    unconditional_guidance_scale=opt.scale,
+                                    unconditional_conditioning=uc,
+                                )
                         elif opt.sampler in K_DIFF_SAMPLERS:
                             match opt.sampler:
                                 case 'dpm2':
@@ -518,6 +562,9 @@ def main():
                                     print(f"[WARN] you should really enable --karras_noise for best results; it's the noise schedule proposed in the same paper (arXiv:2206.00364) as the sampler you're using ({opt.sampler}). Falling back to default k-diffusion get_sigmas() noise schedule.")
                                 sigmas = model_k_wrapped.get_sigmas(opt.steps)
                             
+                            if init_latent is not None:
+                                sigmas = sigmas[len(sigmas) - t_enc - 1 :]
+                            
                             print('sigmas:')
                             sigmas_pretty = format_sigmas_pretty(sigmas)
                             print(sigmas_pretty)
@@ -555,6 +602,8 @@ def main():
                                 noise_schedule_sampler_args['decorate_sigma_hat'] = log_sigma
 
                             x = start_code * sigmas[0] # for GPU draw
+                            if init_latent is not None:
+                                x = init_latent + x
                             extra_args = {
                                 'cond': c,
                                 'uncond': uc,

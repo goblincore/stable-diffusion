@@ -62,7 +62,7 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "args": [
-        "--prompt",
+        // "--prompt",
         // "Kunkka enjoys a nice coffee with Crystal Maiden. pixiv",
         // "masterpiece character portrait of a blonde girl, full resolution, 4 k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination",
         "masterpiece character portrait of a blonde girl, full resolution, 4k, mizuryuu kei, akihiko. yoshida, Pixiv featured, baroque scenic, by artgerm, sylvain sarrailh, rossdraws, wlop, global illumination, vaporwave",
@@ -74,10 +74,11 @@
         // "--filename_sample_ix",
         // "--filename_seed",
         "--filename_sampling",
-        "--filename_sigmas",
+        // "--filename_sigmas",
         "--n_iter", "1",
         "--n_samples", "1",
         "--steps", "8",
+        "--steps", "50",
         "--sampler", "heun",
         "--karras_noise",
         "--discretization",
@@ -90,6 +91,13 @@
         "--dynamic_thresholding_percentile",
         "0.9"
         // "--fixed_code",
+        "--init_img",
+        "/Users/birch/dall-e-mega/fumo plush of lina from dota 1.jpg",
+        "--prompt",
+        "plush doll maiden of magic fire",
+        "--strength", "0.3",
+        "--f",
+        "16"
       ]
     },
     {
