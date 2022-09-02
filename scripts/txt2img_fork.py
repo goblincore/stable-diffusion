@@ -191,10 +191,11 @@ def main():
         default="k_lms"
     )
     # my recommendations for each sampler are:
-    # implement samplers from Karras et al paper using Karras noise schedule, discretize timesteps, and remove the zero sigma so we don't go below sigma_min
-    # --heun --karras_noise --discretization --no_zero_sigma
-    # --euler --karras_noise --discretization --no_zero_sigma
-    # --dpm2 --karras_noise --discretization --no_zero_sigma
+    # implement samplers from Karras et al paper using Karras noise schedule, discretize timesteps.
+    # if your step count is low (for example 7 or 8) you should use add ----end_karras_ramp_early too.
+    # --heun --karras_noise --discretization
+    # --euler --karras_noise --discretization
+    # --dpm2 --karras_noise --discretization
     # I assume Karras noise schedule is generally applicable, so is suitable for use with any k-diffusion sampler. there's no guidance on how to apply discretization to these algorithms, so we don't.
     # --k_lms --karras_noise
     # --euler_ancestral --karras_noise
@@ -213,9 +214,9 @@ def main():
         help=f"implements the time-step discretization from arXiv:2206.00364 section C.3.4. Implemented in Karras samplers only, {KARRAS_SAMPLERS}. Rounds each sigma proposed by your noise schedule, to the closest sigma among the 1000 on which Stable Diffusion's DDIM sampler was trained.",
     )
     parser.add_argument(
-        "--no_zero_sigma",
+        "--end_karras_ramp_early",
         action='store_true',
-        help=f"when --karras_noise is enabled: ensures that we ramp from sigma_max to sigma_min, instead of shooting past sigma_min to 0. the default behaviour from k-diffusion would be to include a 0 as your final sigma. which could make sense for continuous-time models, but is out-of-range of the fixed sigmas in Stable Diffusion's DDIM (smallest is 0.0292). it's especially questionable when we are using discretization, as it will mean sampling sigma_min twice.",
+        help=f"when --karras_noise is enabled: ramp from sigma_max (14.6146) to a sigma *slightly above* sigma_min (0.0292), instead of including sigma_min in our ramp. because the effect on the image of sampling sigma_min is not very big, and every sigma counts when our step counts are low. use this to get good results with {KARRAS_SAMPLERS} at step counts as low as 7 or 8.",
     )
     parser.add_argument(
         "--yolo_discretization",
@@ -431,7 +432,7 @@ def main():
     karras_noise_active = False
     discretization_active = False
     yolo_discretization_active = False
-    no_zero_sigma_active = False
+    end_karras_ramp_early_active = False
 
     def format_sigmas_pretty(sigmas: Tensor) -> str:
         return f'[{", ".join("%.4f" % sigma for sigma in sigmas)}]'
@@ -447,7 +448,7 @@ def main():
             kna = '_kns' if karras_noise_active else ''
             da = '_dcrt' if discretization_active else ''
             yda = '_ydcrt' if yolo_discretization_active else ''
-            nz = '_nz' if no_zero_sigma_active else ''
+            nz = '_ek' if end_karras_ramp_early_active else ''
             sampling = f"{opt.sampler}{opt.steps}{kna}{da}{yda}{nz}"
         if opt.filename_seed:
             seed = f".s{opt.seed}"
@@ -552,19 +553,46 @@ def main():
                             if opt.karras_noise:
                                 if opt.sampler not in KARRAS_SAMPLERS:
                                     print(f"[WARN] you have enabled --karras_noise, but you are using it with a sampler ({opt.sampler}) outside of the ones proposed in the same paper (arXiv:2206.00364), {KARRAS_SAMPLERS}. No idea what results you'll get.")
+                                
+                                # the idea of "ending the Karras ramp early" (i.e. setting a high sigma_min) is that sigmas as lower as sigma_min
+                                # aren't very impactful, and every sigma counts when our step count is low
+                                # https://github.com/crowsonkb/k-diffusion/pull/23#issuecomment-1234872495
+                                # this is just a more performant way to get the "sigma before sigma_min" from a Karras schedule, aka
+                                # get_sigmas_karras(n=steps, sigma_max=sigma_max, sigma_min=sigma_min_nominal, rho=rho)[-3]
+                                def get_premature_sigma_min(
+                                    steps: int,
+                                    sigma_max: float,
+                                    sigma_min_nominal: float,
+                                    rho: float
+                                ) -> float:
+                                    min_inv_rho = sigma_min_nominal ** (1 / rho)
+                                    max_inv_rho = sigma_max ** (1 / rho)
+                                    ramp = (steps-2) * 1/(steps-1)
+                                    sigma_min = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** rho
+                                    return sigma_min
+
+                                rho = 7.
+                                # 14.6146
+                                sigma_max=model_k_wrapped.sigmas[-1].item()
+                                # 0.0292
+                                sigma_min_nominal=model_k_wrapped.sigmas[0].item()
+                                # get the "sigma before sigma_min" from a slightly longer ramp
+                                # https://github.com/crowsonkb/k-diffusion/pull/23#issuecomment-1234872495
+                                premature_sigma_min = get_premature_sigma_min(
+                                    steps=opt.steps+1,
+                                    sigma_max=sigma_max,
+                                    sigma_min_nominal=sigma_min_nominal,
+                                    rho=rho
+                                )
                                 sigmas = get_sigmas_karras(
                                     n=opt.steps,
-                                    # 0.0292
-                                    sigma_min=model_k_wrapped.sigmas[0].item(),
-                                    # 14.6146
-                                    sigma_max=model_k_wrapped.sigmas[-1].item(),
-                                    rho=7.,
+                                    sigma_min=premature_sigma_min if opt.end_karras_ramp_early else sigma_min_nominal,
+                                    sigma_max=sigma_max,
+                                    rho=rho,
                                     device=device,
-                                    # zero would be smaller than sigma_min
-                                    concat_zero=not opt.no_zero_sigma
                                 )
                                 karras_noise_active = True
-                                no_zero_sigma_active = opt.no_zero_sigma
+                                end_karras_ramp_early_active = opt.end_karras_ramp_early
                             else:
                                 if opt.sampler in KARRAS_SAMPLERS:
                                     print(f"[WARN] you should really enable --karras_noise for best results; it's the noise schedule proposed in the same paper (arXiv:2206.00364) as the sampler you're using ({opt.sampler}). Falling back to default k-diffusion get_sigmas() noise schedule.")
@@ -593,9 +621,6 @@ def main():
                                     # quantize sigmas from noise schedule to closest equivalent in model_k_wrapped.sigmas
                                     sigmas = model_k_wrapped.sigmas[torch.argmin((sigmas.reshape(len(sigmas), 1).repeat(1, len(model_k_wrapped.sigmas)) - model_k_wrapped.sigmas).abs(), dim=1)]
                                     yolo_discretization_active = True
-                            
-                            if karras_noise_active and (discretization_active or yolo_discretization_active) and not opt.no_zero_sigma:
-                                print(f"[WARN] you should really enable --no_zero_sigma since you're using time-step discretization. a 0 is appended to the end of your sigmas, which will be rounded up to sigma_min. consequently you will sample sigma_min twice.")
                             
                             if opt.print_sigma_hats:
                                 orig_decorator = noise_schedule_sampler_args['decorate_sigma_hat'] if 'decorate_sigma_hat' in noise_schedule_sampler_args else lambda x: x
