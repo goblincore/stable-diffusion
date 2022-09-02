@@ -346,6 +346,11 @@ def main():
         help="include sampling config in file name",
     )
     parser.add_argument(
+        "--filename_guidance",
+        action='store_true',
+        help="include guidance config in file name",
+    )
+    parser.add_argument(
         "--filename_sigmas",
         action='store_true',
         help="include sigmas in file name",
@@ -437,6 +442,7 @@ def main():
         prompt = ''
         sample_ix_ = ''
         sigmas_ = ''
+        guidance = ''
         if opt.filename_sampling:
             kna = '_kns' if karras_noise_active else ''
             da = '_dcrt' if discretization_active else ''
@@ -451,7 +457,9 @@ def main():
             sample_ix_ = sample_ix
         if opt.filename_sigmas:
             sigmas_ = f"_{sigmas}_"
-        return f"{seed}{sample_ix_}{prompt}{sigmas_}{sampling}"
+        if opt.filename_guidance:
+            guidance = f"_str{opt.strength}_sca{opt.scale}"
+        return f"{seed}{sample_ix_}{prompt}{sigmas_}{guidance}{sampling}"
 
     def compute_batch_file_name(sigmas: str = '') -> str:
         common_file_name_portion = _compute_common_file_name_portion(sigmas=sigmas)
