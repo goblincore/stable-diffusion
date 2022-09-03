@@ -40,7 +40,7 @@ def sampler_fn(
     else:
         x = torch.randn([args.n_samples, *shape], device=device) * sigmas[0]
     sampler_args = {
-        "model": CFGDenoiser(model_wrap),
+        "model": CFGDenoiser(model_wrap, quantize=True),
         "x": x,
         "sigmas": sigmas,
         "extra_args": {"cond": c, "uncond": uc, "cond_scale": args.scale},
