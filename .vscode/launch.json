@@ -80,7 +80,7 @@
         "--n_samples", "1",
         // "--steps", "50",
         // "--sampler", "plms",
-        "--steps", "7",
+        "--steps", "8",
         "--sampler", "heun",
         "--karras_noise",
         "--end_karras_ramp_early",
