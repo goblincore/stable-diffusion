@@ -16,6 +16,7 @@ from torch import autocast, nn
 from contextlib import contextmanager, nullcontext
 from random import randint
 from typing import Optional
+import re
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -442,14 +443,24 @@ def main():
         if opt.filename_seed:
             seed = f".s{opt.seed}"
         if opt.filename_prompt:
-            prompt = f"_{opt.prompt}_"
+            sanitized = re.sub(r"[/\\?%*:|\"<>\x7F\x00-\x1F]", "-", opt.prompt)
+            prompt = f"_{sanitized}_"
         if opt.filename_sample_ix:
             sample_ix_ = sample_ix
         if opt.filename_sigmas and sigmas is not None:
             sigmas_ = f"_{sigmas}_"
         if opt.filename_guidance:
             guidance = f"_str{opt.strength}_sca{opt.scale}"
-        return f"{seed}{sample_ix_}{prompt}{sigmas_}{guidance}{sampling}"
+        nominal = f"{seed}{sample_ix_}{prompt}{sigmas_}{guidance}{sampling}"
+        # https://apple.stackexchange.com/a/86617/251820
+        # macOS imposes a filename limit of ~255 chars
+        # we already used up some on base_count and the file extension
+        # shed the biggest parts if we must, so that saving doesn't go bang
+        if len(nominal) > 245:
+            nominal = f"{seed}{sample_ix_}{prompt}{guidance}{sampling}"
+        if len(nominal) > 245:
+            nominal = f"{seed}{sample_ix_}{guidance}{sampling}"
+        return nominal
 
     def compute_batch_file_name(sigmas: str = '') -> str:
         common_file_name_portion = _compute_common_file_name_portion(sigmas=sigmas)
