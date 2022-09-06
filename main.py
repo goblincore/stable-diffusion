@@ -2,6 +2,7 @@ import argparse, os, sys, datetime, glob, importlib, csv
 import numpy as np
 import time
 import torch
+
 import torchvision
 import pytorch_lightning as pl
 
@@ -9,7 +10,7 @@ from packaging import version
 from omegaconf import OmegaConf
 from torch.utils.data import random_split, DataLoader, Dataset, Subset
 from functools import partial
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
@@ -19,7 +20,33 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from ldm.data.base import Txt2ImgIterableBaseDataset
 from ldm.util import instantiate_from_config
+###############windows mods##################
+import os
+os.environ["PL_TORCH_DISTRIBUTED_BACKEND"] = "gloo"
+#PL_TORCH_DISTRIBUTED_BACKEND=gloo
 
+def get_font(txt, img_fraction=0.05):
+    font = ImageFont.truetype("/Library/fonts/Arial.ttf", fontsize)
+#############################################
+
+
+#script
+def load_model_from_config(config, ckpt, verbose=False):
+    print(f"Loading model from {ckpt}")
+    pl_sd = torch.load(ckpt, map_location="cuda")
+    sd = pl_sd["state_dict"]
+    config.model.params.ckpt_path = ckpt
+    model = instantiate_from_config(config.model)
+    m, u = model.load_state_dict(sd, strict=False)
+    if len(m) > 0 and verbose:
+        print("missing keys:")
+        print(m)
+    if len(u) > 0 and verbose:
+        print("unexpected keys:")
+        print(u)
+
+    model.cuda()
+    return model
 
 def get_parser(**parser_kwargs):
     def str2bool(v):
@@ -120,6 +147,23 @@ def get_parser(**parser_kwargs):
         default=True,
         help="scale base-lr by ngpu * batch_size * n_accumulate",
     )
+
+    parser.add_argument(
+        "--datadir_in_name", 
+        type=str2bool, 
+        nargs="?", 
+        const=True, 
+        default=True, 
+        help="Prepend the final directory in the data_root to the output directory name")
+
+    parser.add_argument("--actual_resume", type=str, default="", help="Path to model to actually resume from")
+    parser.add_argument("--data_root", type=str, required=True, help="Path to directory with training images")
+
+    parser.add_argument("--embedding_manager_ckpt", type=str, default="", help="Initialize embedding manager from a checkpoint")
+    parser.add_argument("--placeholder_tokens", type=str, nargs="+", default=["*"])
+
+    parser.add_argument("--init_word", type=str, help="Word to use as source for initial token embedding.")
+
     return parser
 
 
@@ -316,11 +360,17 @@ class ImageLogger(Callback):
             pl_module.logger.experiment.add_image(
                 tag, grid,
                 global_step=pl_module.global_step)
-
+                
+               
+    #base_counter += 1
     @rank_zero_only
     def log_local(self, save_dir, split, images,
                   global_step, current_epoch, batch_idx):
+        global base_counter
         root = os.path.join(save_dir, "images", split)
+        os.makedirs(os.path.split(os.path.join(root))[0], exist_ok=True)
+        os.makedirs(os.path.split(os.path.join(root, "train", split))[0], exist_ok=True)
+        base_counter = len(os.listdir(root)) 
         for k in images:
             grid = torchvision.utils.make_grid(images[k], nrow=4)
             if self.rescale:
@@ -328,14 +378,20 @@ class ImageLogger(Callback):
             grid = grid.transpose(0, 1).transpose(1, 2).squeeze(-1)
             grid = grid.numpy()
             grid = (grid * 255).astype(np.uint8)
-            filename = "{}_gs-{:06}_e-{:06}_b-{:06}.png".format(
+            base_counter += 1
+            filename = "{}_gs-{:06}_e-{:06}_b-{:06}_{:08}.png".format(
                 k,
                 global_step,
                 current_epoch,
-                batch_idx)
-            path = os.path.join(root, filename)
-            os.makedirs(os.path.split(path)[0], exist_ok=True)
-            Image.fromarray(grid).save(path)
+                batch_idx,
+                base_counter)
+
+            Image.fromarray(grid).save(
+                                    os.path.join(root, filename))
+            
+            os.makedirs(os.path.split(os.path.join(root, filename))[0], exist_ok=True)
+            Image.fromarray(grid).save(os.path.join(root, filename))
+            
 
     def log_img(self, pl_module, batch, batch_idx, split="train"):
         check_idx = batch_idx if self.log_on_batch_idx else pl_module.global_step
@@ -400,7 +456,7 @@ class CUDACallback(Callback):
         torch.cuda.synchronize(trainer.root_gpu)
         self.start_time = time.time()
 
-    def on_train_epoch_end(self, trainer, pl_module, outputs):
+    def on_train_epoch_end(self, trainer, pl_module):
         torch.cuda.synchronize(trainer.root_gpu)
         max_memory = torch.cuda.max_memory_allocated(trainer.root_gpu) / 2 ** 20
         epoch_time = time.time() - self.start_time
@@ -502,6 +558,10 @@ if __name__ == "__main__":
             name = "_" + cfg_name
         else:
             name = ""
+
+        if opt.datadir_in_name:
+            now = os.path.basename(os.path.normpath(opt.data_root)) + now
+            
         nowname = now + name + opt.postfix
         logdir = os.path.join(opt.logdir, nowname)
 
@@ -532,7 +592,18 @@ if __name__ == "__main__":
         lightning_config.trainer = trainer_config
 
         # model
-        model = instantiate_from_config(config.model)
+
+        # config.model.params.personalization_config.params.init_word = opt.init_word
+        config.model.params.personalization_config.params.embedding_manager_ckpt = opt.embedding_manager_ckpt
+        config.model.params.personalization_config.params.placeholder_tokens = opt.placeholder_tokens
+
+        if opt.init_word:
+            config.model.params.personalization_config.params.initializer_words[0] = opt.init_word
+
+        if opt.actual_resume:
+            model = load_model_from_config(config, opt.actual_resume)
+        else:
+            model = instantiate_from_config(config.model)
 
         # trainer and callbacks
         trainer_kwargs = dict()
@@ -571,6 +642,7 @@ if __name__ == "__main__":
             "params": {
                 "dirpath": ckptdir,
                 "filename": "{epoch:06}",
+                "every_n_train_steps": 500,
                 "verbose": True,
                 "save_last": True,
             }
@@ -578,7 +650,7 @@ if __name__ == "__main__":
         if hasattr(model, "monitor"):
             print(f"Monitoring {model.monitor} as checkpoint metric.")
             default_modelckpt_cfg["params"]["monitor"] = model.monitor
-            default_modelckpt_cfg["params"]["save_top_k"] = 3
+            default_modelckpt_cfg["params"]["save_top_k"] = 1
 
         if "modelcheckpoint" in lightning_config:
             modelckpt_cfg = lightning_config.modelcheckpoint
@@ -655,11 +727,16 @@ if __name__ == "__main__":
             del callbacks_cfg['ignore_keys_callback']
 
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
+        trainer_kwargs["max_steps"] = opt.max_steps
 
         trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
         trainer.logdir = logdir  ###
 
         # data
+        config.data.params.train.params.data_root = opt.data_root
+        config.data.params.validation.params.data_root = opt.data_root
+        data = instantiate_from_config(config.data)
+
         data = instantiate_from_config(config.data)
         # NOTE according to https://pytorch-lightning.readthedocs.io/en/latest/datamodules.html
         # calling these ourselves should not be necessary but it is.
@@ -673,8 +750,7 @@ if __name__ == "__main__":
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
         if not cpu:
-            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
-        else:
+            #ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
             ngpu = 1
         if 'accumulate_grad_batches' in lightning_config.trainer:
             accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches
@@ -710,8 +786,8 @@ if __name__ == "__main__":
 
         import signal
 
-        signal.signal(signal.SIGUSR1, melk)
-        signal.signal(signal.SIGUSR2, divein)
+        signal.signal(signal.SIGTERM, melk)
+        signal.signal(signal.SIGTERM, divein)
 
         # run
         if opt.train:
@@ -737,5 +813,5 @@ if __name__ == "__main__":
             dst = os.path.join(dst, "debug_runs", name)
             os.makedirs(os.path.split(dst)[0], exist_ok=True)
             os.rename(logdir, dst)
-        if trainer.global_rank == 0:
-            print(trainer.profiler.summary())
+        #if trainer.global_rank == 0:
+        #    print(trainer.profiler.summary())
