@@ -647,3 +647,4 @@ class TransformerWrapper(nn.Module):
             return out, attn_maps
 
         return out
+

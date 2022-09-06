@@ -9,14 +9,13 @@
 
 
 import os
-import importlib
 import math
 import torch
 import torch.nn as nn
 import numpy as np
 from einops import repeat
 
-#from ldm.util import instantiate_from_config
+from ldm.util import instantiate_from_config
 
 
 def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
@@ -110,7 +109,7 @@ def checkpoint(func, inputs, params, flag):
                    explicitly take as arguments.
     :param flag: if False, disable gradient checkpointing.
     """
-    if flag:
+    if False: # disabled checkpointing to allow requires_grad = False for main model
         args = tuple(inputs) + tuple(params)
         return CheckpointFunction.apply(func, len(inputs), *args)
     else:
@@ -266,21 +265,3 @@ def noise_like(shape, device, repeat=False):
     repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
     noise = lambda: torch.randn(shape, device=device)
     return repeat_noise() if repeat else noise()
-
-
-def instantiate_from_config(config, **kwargs):
-    if not "target" in config:
-        if config == '__is_first_stage__':
-            return None
-        elif config == "__is_unconditional__":
-            return None
-        raise KeyError("Expected key `target` to instantiate.")
-    return get_obj_from_str(config["target"])(**config.get("params", dict()), **kwargs)
-
-
-def get_obj_from_str(string, reload=False):
-    module, cls = string.rsplit(".", 1)
-    if reload:
-        module_imp = importlib.import_module(module)
-        importlib.reload(module_imp)
-    return getattr(importlib.import_module(module, package=None), cls)

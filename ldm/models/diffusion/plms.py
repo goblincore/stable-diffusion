@@ -14,17 +14,11 @@ class PLMSSampler(object):
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
-        if(torch.cuda.is_available()):
-            self.device_available = "cuda"
-        elif(torch.backends.mps.is_available()):
-            self.device_available = "mps"
-        else:
-            self.device_available = "cpu"
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
-            if attr.device != torch.device(self.device_available):
-                attr = attr.to(torch.float32).to(torch.device(self.device_available)).contiguous()
+            if attr.device != torch.device("cuda"):
+                attr = attr.to(torch.device("cuda"))
         setattr(self, name, attr)
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
@@ -127,10 +121,7 @@ class PLMSSampler(object):
         device = self.model.betas.device
         b = shape[0]
         if x_T is None:
-            # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1229706811
-            # https://github.com/CompVis/stable-diffusion/issues/25#issuecomment-1230075917
-            # MPS random is not currently deterministic w.r.t seed, so compute randn() on-CPU
-            img = torch.randn(shape, device="cpu").to(device) if torch.device(device).type == 'mps' else torch.randn(shape, device=device)
+            img = torch.randn(shape, device=device)
         else:
             img = x_T
 
