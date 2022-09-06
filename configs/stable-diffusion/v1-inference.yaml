@@ -15,16 +15,6 @@ model:
     conditioning_key: crossattn
     monitor: val/loss_simple_ema
     scale_factor: 0.18215
-    use_ema: False
-
-    personalization_config:
-      target: ldm.modules.embedding_manager.EmbeddingManager
-      params:
-        placeholder_strings: ["*"]
-        initializer_words: ["3D", "3D rendering", "Ichiro Tanida", "style"]
-        per_image_tokens: false
-        num_vectors_per_token: 1
-        progressive_words: False
 
     scheduler_config: # 10000 warmup steps
       target: ldm.lr_scheduler.LambdaLinearScheduler
